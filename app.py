@@ -17,18 +17,18 @@ except ImportError:
 DAILY_MINUTES = 1320
 CAPACITIES = {
     "Arjun-1": 10117,
-    "Arjun-2": 13213,
-    "Arjun-3": 11679,
-    "Arjun-4": 13728,
-    "Arjun-5": 8976,
+    "Arjun-2": 12500,
+    "Arjun-3": 12500,
+    "Arjun-4": 11800,
+    "Arjun-5": 10000,
     "Arjun-6": 28089,
     "Arjun-7": 7920,
     "Arjun-8": 9900,
-    "Arjun-9": 11616,
-    "Arjun-10": 5148,
+    "Arjun-9": 12500,
+    "Arjun-10": 6500,
     "Arjun-11": 9240,
-    "Arjun-12": 11088,
-    "AutoLine": 24440,
+    "Arjun-12": 8088,
+    "AutoLine": 24568,
 }
 
 # --- Core Logic ---
