@@ -1,0 +1,8 @@
+streamlit
+pandas
+openpyxl
+xlsxwriter
+fastapi
+python-multipart
+uvicorn
+reportlab
