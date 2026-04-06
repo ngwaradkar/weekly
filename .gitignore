@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Other projects (not part of this Streamlit app)
+Nikhil/
+Projects/
+"Shiftwise Report"/
+flutter_app/
+mobile_app_frontend/
+
+# Deploy/build files
+.firebase/
+firebase.json
+.gcloudignore
+Dockerfile
+*.bat
+DEPLOY*.md
+*.apk
+
+# Temp
+tmp/
+*.tmp
