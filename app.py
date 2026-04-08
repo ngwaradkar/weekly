@@ -32,22 +32,24 @@ CAPACITIES = {
 }
 
 # --- Core Logic ---
-def get_monthly_working_days(start_date, end_date):
-    """Generates dates, skipping Sundays."""
+def get_monthly_working_days(start_date, end_date, exclude_dates=None):
+    """Generates dates, skipping Sundays and custom holidays."""
+    if exclude_dates is None: exclude_dates = []
     dates = []
     current = start_date
     while current <= end_date:
-        if current.weekday() != 6:  # 6 is Sunday
+        if current.weekday() != 6 and current not in exclude_dates:  # 6 is Sunday
             dates.append(current)
         current += datetime.timedelta(days=1)
     return dates
 
-def get_weekly_working_days(start_date, num_days=6):
-    """Generates exactly `num_days` working days starting from start_date, skipping Sundays."""
+def get_weekly_working_days(start_date, num_days=6, exclude_dates=None):
+    """Generates exactly `num_days` working days starting from start_date, skipping Sundays and holidays."""
+    if exclude_dates is None: exclude_dates = []
     dates = []
     current = start_date
     while len(dates) < num_days:
-        if current.weekday() != 6:
+        if current.weekday() != 6 and current not in exclude_dates:
             dates.append(current)
         current += datetime.timedelta(days=1)
     return dates
@@ -114,7 +116,8 @@ def process_schedule(df, working_days):
         if day_idx >= len(working_days):
             continue 
 
-        qty_needed = row["Total Plan Qty"]
+        # Round Total Plan Qty to nearest integer
+        qty_needed = int(round(row["Total Plan Qty"]))
         
         while qty_needed > 0:
             if day_idx >= len(working_days):
@@ -172,10 +175,10 @@ def generate_monthly_excel(result_df, final_cols, title):
 
         n_cols = len(final_cols)
         worksheet.set_column(0, 0, 5)   # Sr No
-        worksheet.set_column(1, 1, 10)  # Line
-        worksheet.set_column(2, 2, 15)  # Part No
-        worksheet.set_column(3, 3, 30)  # Desc
-        worksheet.set_column(4, n_cols-1, 8) 
+        worksheet.set_column(1, 1, 20)  # Part Number
+        worksheet.set_column(2, 2, 40)  # Part Description
+        worksheet.set_column(3, 3, 15)  # Total Plan Qty
+        worksheet.set_column(4, n_cols-1, 10) # Dates
 
         current_row = 0
         worksheet.merge_range(current_row, 0, current_row, n_cols-1, title, main_title_fmt)
@@ -197,23 +200,34 @@ def generate_monthly_excel(result_df, final_cols, title):
             sr_no_counter = 1
             for _, row_data in line_df.iterrows():
                 for col_idx, col_name in enumerate(final_cols):
-                    val = sr_no_counter if col_idx == 0 else row_data[col_name]
-                    cell_fmt = data_left_fmt if col_idx in [2, 3] else data_fmt
-                    if pd.isna(val):
+                    # Sr No is custom
+                    if col_idx == 0:
+                        val = sr_no_counter
+                    else:
+                        val = row_data[col_name]
+                    
+                    # Align Part Number and Description to the left
+                    cell_fmt = data_left_fmt if col_idx in [1, 2] else data_fmt
+                    
+                    if pd.isna(val) or val == "":
                         worksheet.write(current_row, col_idx, "", cell_fmt)
                     else:
                         worksheet.write(current_row, col_idx, val, cell_fmt)
                 current_row += 1
                 sr_no_counter += 1
             
-            worksheet.write(current_row, 0, "", total_fmt)
-            worksheet.write(current_row, 1, "", total_fmt)
-            worksheet.write(current_row, 2, "Total", total_fmt)
-            worksheet.write(current_row, 3, "", total_fmt)
+            # Total row
+            for col_idx in range(len(final_cols)):
+                col_name = final_cols[col_idx]
+                if col_idx == 1:
+                    worksheet.write(current_row, col_idx, "Total", total_fmt)
+                elif col_name == "Total Plan Qty" or isinstance(col_name, datetime.date):
+                    total_val = line_df[col_name].sum()
+                    worksheet.write(current_row, col_idx, int(round(total_val)), total_fmt)
+                else:
+                    worksheet.write(current_row, col_idx, "", total_fmt)
             
-            for col_idx in range(4, n_cols):
-                total_val = line_df[final_cols[col_idx]].sum()
-                worksheet.write(current_row, col_idx, total_val, total_fmt)
+            current_row += 3
             
             current_row += 3
     return output.getvalue()
@@ -560,11 +574,22 @@ def generate_weekly_pdf_report(result_df, final_cols, start_date, selected_week)
         print(f"Error building PDF: {e}")
         return None
 
-def render_monthly_plan():
+def render_monthly_plan(exclude_dates=None):
     st.subheader("Monthly Planning")
-    START_DATE = datetime.date(2026, 1, 1)
-    END_DATE = datetime.date(2026, 1, 31)
-    working_days = get_monthly_working_days(START_DATE, END_DATE)
+    
+    # Set dates to current month
+    today = datetime.date.today()
+    START_DATE = today.replace(day=1)
+    # Get last day of month
+    if today.month == 12:
+        END_DATE = today.replace(year=today.year + 1, month=1, day=1) - datetime.timedelta(days=1)
+    else:
+        END_DATE = today.replace(month=today.month + 1, day=1) - datetime.timedelta(days=1)
+        
+    working_days = get_monthly_working_days(START_DATE, END_DATE, exclude_dates)
+    
+    st.info(f"Production Month: **{START_DATE.strftime('%B %Y')}**")
+    st.info(f"Working Days: **{len(working_days)}** (Excluding Sundays and selected holidays)")
 
     col1, col2 = st.columns([2, 1])
     with col1:
@@ -581,36 +606,46 @@ def render_monthly_plan():
     uploaded_file = st.file_uploader("Upload filled Excel File (Monthly)", type=["xlsx"])
     if uploaded_file:
         df = pd.read_excel(uploaded_file)
+        # Round Total Plan Qty
+        if "Total Plan Qty" in df.columns:
+            df["Total Plan Qty"] = df["Total Plan Qty"].round().fillna(0).astype(int)
+            
         st.dataframe(df.head())
         if st.button("Process Monthly Schedule"):
             with st.spinner("Scheduling Production..."):
                 result_df = process_schedule(df.copy(), working_days)
                 if result_df is not None:
-                    meta_cols = ["Sr. No.", "Line Name", "Part Number", "Part Description", "Total Plan Qty", "Major Setup", "Minor Setup"]
+                    # Filter columns to remove "Line Name", "Major Setup", "Minor Setup"
+                    meta_cols = ["Sr. No.", "Part Number", "Part Description", "Total Plan Qty"]
                     available_meta = [c for c in meta_cols if c in result_df.columns]
                     date_cols_in_df = [c for c in result_df.columns if isinstance(c, datetime.date)]
                     date_cols_in_df.sort()
+                    
+                    # Round date columns
+                    for d in date_cols_in_df:
+                        result_df[d] = result_df[d].round().fillna(0).astype(int)
+                    
                     final_cols = available_meta + date_cols_in_df
                     
                     st.success("Scheduling Complete!")
                     st.dataframe(result_df[final_cols].head(), use_container_width=True)
                     
-                    processed_data = generate_monthly_excel(result_df, final_cols, "Datewise Production Plan Jan 2026")
+                    processed_data = generate_monthly_excel(result_df, final_cols, f"Datewise Production Plan {START_DATE.strftime('%B %Y')}")
                     st.download_button(
                         label="📥 Download Results (.xlsx)",
                         data=processed_data,
-                        file_name="Rheinmetall_Monthly_Schedule.xlsx",
+                        file_name=f"Rheinmetall_Monthly_Schedule_{START_DATE.strftime('%b_%Y')}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
 
-def render_weekly_plan():
+def render_weekly_plan(exclude_dates=None):
     st.subheader("Weekly Planning")
     col1, col2 = st.columns(2)
     with col1:
         start_date = st.date_input("Select Start Date", value=datetime.date.today())
     with col2:
         selected_week = st.selectbox("Select Week", ["Week-1", "Week-2", "Week-3", "Week-4", "Week-5"])
-    working_days = get_weekly_working_days(start_date, num_days=6)
+    working_days = get_weekly_working_days(start_date, num_days=6, exclude_dates=exclude_dates)
     
     st.info(f"Planning Horizon: **{working_days[0].strftime('%A, %d %b %Y')}** to **{working_days[-1].strftime('%A, %d %b %Y')}** (6 working days)")
 
@@ -629,6 +664,10 @@ def render_weekly_plan():
     uploaded_file = st.file_uploader("Upload filled Excel File (Weekly)", type=["xlsx"])
     if uploaded_file:
         df = pd.read_excel(uploaded_file)
+        # Round Total Plan Qty
+        if "Total Plan Qty" in df.columns:
+            df["Total Plan Qty"] = df["Total Plan Qty"].round().fillna(0).astype(int)
+            
         st.dataframe(df.head())
         if st.button("Process Weekly Schedule"):
             with st.spinner("Scheduling Production..."):
@@ -684,6 +723,15 @@ def run_app():
         mode = st.radio("Select Module:", ["Weekly Plan", "Monthly Plan"])
         
         st.divider()
+        st.header("Production Settings")
+        exclude_dates = st.multiselect(
+            "Additional Holidays/Non-Production Days",
+            options=[datetime.date.today() + datetime.timedelta(days=x) for x in range(-30, 365)],
+            format_func=lambda x: x.strftime('%d-%b-%Y'),
+            help="Select specific dates where production is not scheduled (Sundays are skipped by default)."
+        )
+
+        st.divider()
         st.header("Line Capacities (Units/Day)")
         items = list(CAPACITIES.items())
         col_c1, col_c2 = st.columns(2)
@@ -697,9 +745,9 @@ def run_app():
         st.caption("Major Setup: 240 mins | Minor Setup: 60 mins")
 
     if mode == "Monthly Plan":
-        render_monthly_plan()
+        render_monthly_plan(exclude_dates=exclude_dates)
     elif mode == "Weekly Plan":
-        render_weekly_plan()
+        render_weekly_plan(exclude_dates=exclude_dates)
 
 if __name__ == "__main__":
     run_app()
